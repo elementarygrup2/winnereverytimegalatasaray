@@ -1,6 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" role="img" aria-label="Türkiye bayrağı">
-  <rect width="120" height="80" rx="4" fill="#e30a17"/>
-  <circle cx="47" cy="40" r="23" fill="#fff"/>
-  <circle cx="55" cy="35" r="19" fill="#e30a17"/>
-  <path d="m76 27 4.1 9.3 10.1.9-7.6 6.7 2.2 9.9-8.8-5.1-8.8 5.1 2.2-9.9-7.6-6.7 10.1-.9z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-labelledby="title desc">
+  <title id="title">Türkiye Cumhuriyeti bayrağı</title>
+  <desc id="desc">Kırmızı zemin üzerinde beyaz ay yıldız</desc>
+  <defs>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f51a2a"/>
+      <stop offset=".52" stop-color="#e30a17"/>
+      <stop offset="1" stop-color="#b90712"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="15" flood-color="#7f0008" flood-opacity=".3"/>
+    </filter>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fff" stop-opacity=".14"/>
+      <stop offset=".46" stop-color="#fff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#5f0008" stop-opacity=".18"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="800" rx="24" fill="url(#red)"/>
+  <path d="M0 90C270 30 440 155 720 95s340-44 480-5v250c-240-40-400-78-650-22S215 357 0 413Z" fill="#fff" opacity=".045"/>
+  <path d="M0 525c230-75 438-29 650 22s370 38 550-18v271H0Z" fill="#75000a" opacity=".08"/>
+  <g filter="url(#soft-shadow)">
+    <circle cx="435" cy="400" r="210" fill="#fff"/>
+    <circle cx="497" cy="366" r="175" fill="#e30a17"/>
+    <path d="m666 244 45 104 113 10-85 75 25 111-98-57-99 57 25-111-85-75 113-10z" fill="#fff"/>
+  </g>
+  <rect width="1200" height="800" rx="24" fill="url(#shine)"/>
 </svg>

@@ -153,10 +153,8 @@ function topbar() {
 }
 
 function nationalRibbon() {
-  return `<div class="national-ribbon" aria-label="Türkiye, Atatürk ve Kuzey Kıbrıs Türk Cumhuriyeti">
-    <img src="./assets/turkiye-bayragi.svg" alt="Türkiye bayrağı" />
-    <span class="ataturk-frame" title="Atatürk görseli"><img src="https://upload.wikimedia.org/wikipedia/commons/c/c5/Atat%C3%BCrk_portre.png" alt="Atatürk" referrerpolicy="no-referrer" /></span>
-    <img src="./assets/kktc-bayragi.svg" alt="Kuzey Kıbrıs Türk Cumhuriyeti bayrağı" />
+  return `<div class="national-ribbon" aria-label="Türkiye Cumhuriyeti bayrağı">
+    <img class="turkiye-flag" src="./assets/turkiye-bayragi.svg" alt="Türkiye bayrağı" />
   </div>`;
 }
 
@@ -326,7 +324,7 @@ function renderStudent() {
           ${nationalRibbon()}
           <a href="#" class="brand" data-action="home">${universityLogo()}<span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span></a>
         </div>
-        <div class="participant-pill"><span class="avatar">${esc(shortName(state.participant?.fullName))}</span><span><b>${esc(state.participant?.fullName || "Misafir")}</b><br>Öğrenci modu</span></div>
+        <div class="student-actions"><div class="participant-pill"><span class="avatar">${esc(shortName(state.participant?.fullName))}</span><span><b>${esc(state.participant?.fullName || "Misafir")}</b><br>Öğrenci modu</span></div><button class="ghost-btn student-exit" data-action="leave-student">Çıkış</button></div>
       </header>
       ${studentBody(event, participant)}
     </main>`;
@@ -812,6 +810,19 @@ async function advanceEvent(eventId) {
 
 function completedEvents() { return getEventsArray().filter((event) => event.meta.status === "finished").sort((a, b) => (b.meta.endedAt || 0) - (a.meta.endedAt || 0)); }
 
+function rankedParticipants(event) {
+  return Object.entries(event.participants || {})
+    .filter(([, participant]) => !participant.kicked)
+    .map(([uid, participant]) => ({ uid, fullName: participant.fullName || participant.nickname, ...getParticipantProgress(participant) }))
+    .sort((a, b) => b.correctCount - a.correctCount || a.totalCorrectElapsed - b.totalCorrectElapsed || a.fullName.localeCompare(b.fullName, "tr"));
+}
+
+function renderAnalysisRanking(event) {
+  const ranking = rankedParticipants(event);
+  if (!ranking.length) return "";
+  return `<article class="panel glass analysis-ranking"><div><span class="eyebrow">Yeni sıralama</span><h2>Doğru sayısı, sonra toplam süre</h2><p>Önce en çok doğruyu yapan öğrenci öne geçer. Doğru sayısı eşitse, doğru cevaplara harcanan toplam süre düşük olan üstte olur.</p></div><div class="scoreboard leaderboard-card">${renderLeaderboardRows(ranking, null, 10)}</div></article>`;
+}
+
 function renderAnalysisTab() {
   const events = completedEvents();
   const selected = state.adminEvents[state.selectedAnalysisId] || events[0];
@@ -821,6 +832,7 @@ function renderAnalysisTab() {
   if (!state.selectedParticipantId || !selected.participants?.[state.selectedParticipantId]) state.selectedParticipantId = participantIds[0] || null;
   return `
     <div class="section-title"><div><h1>Detaylı analiz</h1><p>${esc(selected.meta.title)} · ${participantIds.length} katılımcı · ${selected.meta.questionCount} soru</p></div><select id="analysis-event" class="ghost-btn" data-action="change-analysis-event">${events.map((event) => `<option value="${event.id}" ${event.id === selected.id ? "selected" : ""}>${esc(event.meta.title)}</option>`).join("")}</select></div>
+    ${renderAnalysisRanking(selected)}
     <div class="admin-tabs" style="width:min(460px,100%);margin:0 0 18px"><button class="${state.analysisView === "student" ? "active" : ""}" data-action="analysis-view" data-view="student">Öğrenci analizi</button><button class="${state.analysisView === "question" ? "active" : ""}" data-action="analysis-view" data-view="question">Soru analizi</button></div>
     ${state.analysisView === "question" ? renderQuestionAnalysis(selected) : renderStudentAnalysis(selected)}`;
 }
@@ -888,7 +900,7 @@ async function signOutAdmin() {
   } catch (error) { toast(firebaseError(error), "error"); }
 }
 
-async function leaveFinishedEvent() {
+function clearStudentSession() {
   clearListeners();
   clearInterval(state.clockHandle);
   state.clockHandle = null;
@@ -896,6 +908,11 @@ async function leaveFinishedEvent() {
   state.activeEventId = null;
   state.participant = null;
   localStorage.removeItem(SESSION_KEY);
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
+async function leaveStudentMode() {
+  clearStudentSession();
   try {
     if (auth.currentUser?.isAnonymous) await signOut(auth);
   } catch (error) {
@@ -910,7 +927,13 @@ document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
   const { action } = target.dataset;
-  if (action === "home" || action === "back-landing") { event.preventDefault(); clearListeners(); state.currentPage = "landing"; render(); }
+  if (action === "home" || action === "back-landing") {
+    event.preventDefault();
+    if (state.currentPage === "student" || auth.currentUser?.isAnonymous) return leaveStudentMode();
+    clearListeners();
+    state.currentPage = "landing";
+    render();
+  }
   if (action === "admin-home") { event.preventDefault(); state.adminTab = "lobby"; render(); }
   if (action === "show-join") joinModal();
   if (action === "show-qr") qrModal();
@@ -932,7 +955,7 @@ document.addEventListener("click", async (event) => {
   if (action === "select-participant") { state.selectedParticipantId = target.dataset.uid; render(); }
   if (action === "kick-participant") kickParticipant(target.dataset.eventId, target.dataset.uid);
   if (action === "sign-out") signOutAdmin();
-  if (action === "leave-finished-event") leaveFinishedEvent();
+  if (action === "leave-finished-event" || action === "leave-student") leaveStudentMode();
 });
 
 document.addEventListener("submit", (event) => {
