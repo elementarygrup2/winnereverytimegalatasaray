@@ -2,6 +2,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/fireba
 import {
   getAuth,
   onAuthStateChanged,
+  browserLocalPersistence,
+  setPersistence,
   signInAnonymously,
   signInWithEmailAndPassword,
   signOut
@@ -840,5 +842,30 @@ document.addEventListener("change", (event) => {
 onValue(ref(db, ".info/serverTimeOffset"), (snapshot) => {
   state.serverTimeOffset = Number(snapshot.val() || 0);
 });
-onAuthStateChanged(auth, (user) => { state.firebaseUser = user; });
+setPersistence(auth, browserLocalPersistence).catch((error) => console.error("Oturum kalıcılığı ayarlanamadı.", error));
+onAuthStateChanged(auth, async (user) => {
+  state.firebaseUser = user;
+  if (!user) return;
+
+  if (user.isAnonymous) {
+    if (!state.participant?.fullName) return;
+    state.admin = null;
+    state.currentPage = "student";
+    setupStudentListeners();
+    render();
+    return;
+  }
+
+  try {
+    const roleSnapshot = await get(ref(db, `roles/${user.uid}`));
+    const profile = roleSnapshot.val();
+    if (!profile?.admin) return;
+    state.admin = { ...profile, uid: user.uid, username: user.email?.split("@")[0] || "yönetici" };
+    state.currentPage = "admin";
+    setupAdminListeners();
+    render();
+  } catch (error) {
+    console.error("Kaydedilen oturum geri yüklenemedi.", error);
+  }
+});
 renderLanding();
