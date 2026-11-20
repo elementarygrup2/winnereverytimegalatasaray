@@ -138,12 +138,10 @@ function topbar() {
       <div class="site-identity">
         ${nationalRibbon()}
         <a href="#" class="brand" data-action="home" aria-label="GR2 Live ana sayfa">
-          ${universityLogo()}<span class="brand-mark">G2</span>
-          <span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span>
+          ${universityLogo()}<span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span>
         </a>
       </div>
       <div class="nav-actions">
-        <button class="ghost-btn" data-action="show-qr">▣ QR kodu göster</button>
         <button class="neon-btn pink" data-action="show-admin-login">Yönetici girişi</button>
       </div>
     </header>`;
@@ -152,7 +150,7 @@ function topbar() {
 function nationalRibbon() {
   return `<div class="national-ribbon" aria-label="Türkiye, Atatürk ve Kuzey Kıbrıs Türk Cumhuriyeti">
     <img src="./assets/turkiye-bayragi.svg" alt="Türkiye bayrağı" />
-    <span class="ataturk-frame" title="Atatürk görseli"><img src="./assets/ataturk.jpeg" alt="Atatürk" onerror="this.style.display='none'" /></span>
+    <span class="ataturk-frame" title="Atatürk görseli"><img src="./assets/ataturk.jpeg" alt="Atatürk" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/c/c5/Atat%C3%BCrk_portre.png'" /></span>
     <img src="./assets/kktc-bayragi.svg" alt="Kuzey Kıbrıs Türk Cumhuriyeti bayrağı" />
   </div>`;
 }
@@ -307,6 +305,7 @@ async function ensureParticipant() {
     if (!snapshot.exists()) {
       await set(ref(db, profilePath), {
         fullName: state.participant.fullName,
+        nickname: state.participant.fullName,
         joinedAt: now(),
         ready: false,
         score: 0
@@ -323,7 +322,7 @@ function renderStudent() {
       <header class="student-top">
         <div class="site-identity">
           ${nationalRibbon()}
-          <a href="#" class="brand" data-action="home">${universityLogo()}<span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span></a>
+          <a href="#" class="brand" data-action="home">${universityLogo()}<span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span></a>
         </div>
         <div class="participant-pill"><span class="avatar">${esc(shortName(state.participant?.fullName))}</span><span><b>${esc(state.participant?.fullName || "Misafir")}</b><br>Öğrenci modu</span></div>
       </header>
@@ -446,7 +445,7 @@ function renderAdmin() {
       <header class="admin-top">
         <div class="site-identity">
           ${nationalRibbon()}
-          <a href="#" class="brand" data-action="admin-home">${universityLogo()}<span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Admin</em></span></span></a>
+          <a href="#" class="brand" data-action="admin-home">${universityLogo()}<span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Admin</em></span></span></a>
         </div>
         <div class="nav-actions"><span class="status ${profile.canAuthor ? "live" : "ready"}">${profile.canAuthor ? "Soru editörü" : "Yönetici"}</span><button class="ghost-btn" data-action="sign-out">Çıkış yap</button></div>
       </header>
