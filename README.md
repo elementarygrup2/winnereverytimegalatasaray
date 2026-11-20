@@ -104,5 +104,6 @@ Firebase Console → Realtime Database → Rules bölümündeki kuralları aşa�
 
 1. Pembe Hoca, **Yeni etkinlik oluştur** ekranından çift sayı olacak şekilde soru sayısını ve soru süresini, ayrıca 4/5 seçeneğini belirler; her sorunun doğru cevabını işaretler.
 2. Etkinlik katılıma açılır. Öğrenciler gerçek ad-soyadlarıyla girip **Hazırım** der.
-3. Yönetici etkinliği istediği anda başlatır. Her turun ardından ilk 10 ekranı gösterilir.
-4. Bitince ödül ekranı, öğrenci analizi ve soru analizi oluşur.
+3. Yönetici etkinliği başlatır. Her sorunun süresi dolduğunda sonuç ve sıralama otomatik açılır; yönetici yalnızca **Sonraki soruyu başlat** düğmesine basar.
+4. Sıralama önce doğru sayısına, eşitlikte doğru cevaplara harcanan toplam süreye göre yapılır.
+5. Bitince ödül ekranı, öğrenci analizi ve soru analizi oluşur. Öğrenci sonuç ekranından **Ana ekrana dön** diyerek oturumunu kapatabilir.

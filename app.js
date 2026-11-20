@@ -44,6 +44,7 @@ const state = {
   analysisView: "student",
   participant: readStoredParticipant(),
   clockHandle: null,
+  hostRoundTimer: null,
   serverTimeOffset: 0,
   unsubscribers: [],
   studentEventUnsubscribers: []
@@ -129,6 +130,8 @@ function listen(path, callback) {
 function render() {
   clearInterval(state.clockHandle);
   state.clockHandle = null;
+  clearTimeout(state.hostRoundTimer);
+  state.hostRoundTimer = null;
   if (state.currentPage === "admin") renderAdmin();
   else if (state.currentPage === "student") renderStudent();
   else renderLanding();
@@ -152,7 +155,7 @@ function topbar() {
 function nationalRibbon() {
   return `<div class="national-ribbon" aria-label="Türkiye, Atatürk ve Kuzey Kıbrıs Türk Cumhuriyeti">
     <img src="./assets/turkiye-bayragi.svg" alt="Türkiye bayrağı" />
-    <span class="ataturk-frame" title="Atatürk görseli"><img src="./assets/ataturk.jpeg" alt="Atatürk" onerror="this.onerror=null;this.src='https://upload.wikimedia.org/wikipedia/commons/c/c5/Atat%C3%BCrk_portre.png'" /></span>
+    <span class="ataturk-frame" title="Atatürk görseli"><img src="https://upload.wikimedia.org/wikipedia/commons/c/c5/Atat%C3%BCrk_portre.png" alt="Atatürk" referrerpolicy="no-referrer" /></span>
     <img src="./assets/kktc-bayragi.svg" alt="Kuzey Kıbrıs Türk Cumhuriyeti bayrağı" />
   </div>`;
 }
@@ -336,7 +339,7 @@ function studentBody(event, participant) {
   if (participant?.kicked) return `
     <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Lobi bildirimi</span><h1>Katılımın sonlandırıldı.</h1><p>Lobi yöneticisi bu etkinlikteki katılımını sonlandırdı. Yeni bir etkinlik açıldığında tekrar katılabilirsin.</p><button class="ghost-btn" data-action="back-landing">Ana sayfaya dön</button></article></section>`;
   if (event.meta.status === "waiting") return `
-    <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="status ready">Etkinlik hazır</span><h1>${esc(event.meta.title)}</h1><p>Pembe Hoca etkinliği hazırladı; ancak henüz başlatmadı. ${participant?.ready ? "Hazır olduğunu bildirdin. Sadece başlangıç işaretini bekle." : "Katılmaya hazır olduğunda aşağıdaki düğmeye dokun."}</p>${participant?.ready ? `<div class="ready-check">✓</div><p><b>Hazırsın!</b> Başlangıç işaretini bekle.</p>` : `<button class="neon-btn pink" data-action="mark-ready">Hazırım</button>`}</article></section>`;
+    <section class="student-state lobby-state"><article class="student-card glass lobby-card"><div class="lobby-orbit" aria-hidden="true"><span>✦</span><span>✦</span><span>✦</span></div><span class="status ready">Lobi açık</span><h1>${esc(event.meta.title)}</h1><p>Pembe Hoca etkinliği hazırladı. Başlangıç verilene kadar burada kal; ilk soru herkes için aynı anda açılacak.</p>${participant?.ready ? `<div class="ready-check">✓</div><p><b>Hazırsın!</b> Başlangıç işaretini bekle.</p><span class="lobby-note">Lobidesin · bağlantın canlı</span>` : `<button class="neon-btn pink" data-action="mark-ready">Hazırım, lobide bekle</button><p class="lobby-note">Hazır olunca öğretmen panelinde görünürsün.</p>`}</article></section>`;
   if (event.meta.status === "finished") return renderCelebration(event, participant);
   if (event.meta.phase === "leaderboard") return renderLeaderboardPause(event, participant);
   return renderLiveQuestion(event, participant);
@@ -349,36 +352,73 @@ function renderLiveQuestion(event, participant) {
   const answer = participant?.answers?.[index];
   const total = event.meta.questionCount;
   return `
-    <section>
-      <div class="live-header"><div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div><strong id="countdown" class="timer">--</strong></div>
-      <article class="live-question glass">
-        <div class="question-number">Soru ${index + 1} / ${total}</div>
+    <section class="quiz-stage">
+      <div class="live-header"><span class="question-chip">Soru ${index + 1} / ${total}</span><div class="progress-track"><div id="progress-fill" class="progress-fill"></div></div><strong id="countdown" class="timer">--</strong></div>
+      <article class="live-question glass question-enter" style="--question-index:${index}">
+        <div class="question-number">Hızlı ve doğru cevapla</div>
         <h1>${esc(question.text)}</h1>
         <div class="choice-list">${question.options.map((option, optionIndex) => `
-          <button class="choice ${answer?.option === optionIndex ? "selected" : ""}" ${answer ? "disabled" : ""} data-action="answer" data-option="${optionIndex}"><span class="choice-key">${String.fromCharCode(65 + optionIndex)}</span><span>${esc(option)}</span></button>`).join("")}</div>
-        ${answer ? `<p class="answer-wait">Cevabın kaydedildi. Sonuçlar için diğer katılımcıları bekliyorsun. ✦</p>` : ""}
+          <button class="choice choice-${optionIndex + 1} ${answer?.option === optionIndex ? "selected" : ""}" ${answer ? "disabled" : ""} data-action="answer" data-option="${optionIndex}"><span class="choice-key">${String.fromCharCode(65 + optionIndex)}</span><span>${esc(option)}</span></button>`).join("")}</div>
+        ${answer ? `<p class="answer-wait">✓ Cevabın kaydedildi. Süre biter bitmez sonuç ve sıralama açılacak.</p>` : `<p class="answer-hint">Bir seçeneğe dokun; cevap değiştirilemez.</p>`}
       </article>
-      ${renderSmallLeaderboard(event, participant)}
     </section>`;
 }
 
-function renderSmallLeaderboard(event) {
-  const leaders = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 5);
-  if (!leaders.length) return "";
-  return `<article class="scoreboard glass"><h2>Canlı ilk 5</h2>${leaders.map((leader, index) => `<div class="leader-row"><b class="leader-rank">#${index + 1}</b><span>${esc(leader.fullName || leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</article>`;
+function formatElapsed(milliseconds, empty = "—") {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return empty;
+  return `${(milliseconds / 1000).toLocaleString("tr-TR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} sn`;
+}
+
+function getParticipantProgress(participant) {
+  const results = Object.values(participant?.results || {});
+  const correctResults = results.filter((result) => result?.correct);
+  return {
+    correctCount: correctResults.length,
+    answeredCount: results.filter((result) => Number.isFinite(result?.elapsed)).length,
+    totalCorrectElapsed: correctResults.reduce((total, result) => total + (Number(result.elapsed) || 0), 0)
+  };
+}
+
+function leaderboardEntries(event) {
+  return Object.values(event.leaderboard || {}).sort((a, b) => {
+    const correctDifference = Number(b.correctCount || 0) - Number(a.correctCount || 0);
+    if (correctDifference) return correctDifference;
+    const aTime = Number.isFinite(a.totalCorrectElapsed) ? a.totalCorrectElapsed : Number.MAX_SAFE_INTEGER;
+    const bTime = Number.isFinite(b.totalCorrectElapsed) ? b.totalCorrectElapsed : Number.MAX_SAFE_INTEGER;
+    if (aTime !== bTime) return aTime - bTime;
+    return String(a.fullName || "").localeCompare(String(b.fullName || ""), "tr");
+  });
+}
+
+function renderLeaderboardRows(leaders, ownUid, limit = 10) {
+  return leaders.slice(0, limit).map((leader, index) => `
+    <div class="leader-row ${leader.uid === ownUid ? "is-me" : ""} ${index < 3 ? `podium-${index + 1}` : ""}">
+      <b class="leader-rank">${index < 3 ? ["🥇", "🥈", "🥉"][index] : `#${index + 1}`}</b>
+      <span class="leader-name"><b>${esc(leader.fullName || leader.nickname || "Katılımcı")}</b><small>${Number(leader.correctCount || 0)} doğru · toplam ${formatElapsed(leader.totalCorrectElapsed, "—")}</small></span>
+      <span class="leader-points">${Number(leader.correctCount || 0)} doğru</span>
+    </div>`).join("");
 }
 
 function renderLeaderboardPause(event, participant) {
   const index = event.meta.currentQuestionIndex || 0;
   const result = event.roundResults?.[index];
-  const leaders = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 10);
-  return `<section class="student-state"><article class="student-card glass"><span class="eyebrow">Soru ${index + 1} tamamlandı</span><h1><span class="gradient-text">İlk 10</span> sahnede!</h1><p>${result ? `${result.correct} doğru, ${result.wrong} yanlış cevap geldi.` : "Sonuçlar hesaplanıyor."}</p>${leaders.length ? `<div class="scoreboard">${leaders.map((leader, position) => `<div class="leader-row"><b class="leader-rank">#${position + 1}</b><span>${esc(leader.fullName || leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</div>` : ""}<p>Bir sonraki soru için Pembe Hoca'nın işaretini bekle.</p></article></section>`;
+  const leaders = leaderboardEntries(event);
+  const ownResult = participant?.results?.[index];
+  const ownProgress = getParticipantProgress(participant);
+  const correctAnswer = Number.isInteger(result?.correctOption) ? event.public?.questions?.[index]?.options?.[result.correctOption] : null;
+  return `<section class="student-state result-state"><article class="student-card glass result-card"><span class="eyebrow">Soru ${index + 1} tamamlandı</span><h1><span class="gradient-text">Skor tahtası</span> açık!</h1><p>${result ? `${result.correct} doğru, ${result.wrong} yanlış, ${result.unanswered} boş cevap.` : "Sonuçlar hesaplanıyor."}</p>
+    ${ownResult ? `<div class="round-result ${ownResult.correct ? "correct" : "wrong"}"><b>${ownResult.correct ? "✓ Doğru cevap" : "• Bu kez olmadı"}</b><span>Bu sorudaki süren: ${formatElapsed(ownResult.elapsed)}</span>${correctAnswer ? `<span>Doğru cevap: <b>${esc(correctAnswer)}</b></span>` : ""}</div>` : ""}
+    <div class="personal-rank"><span>Senin ilerlemen</span><b>${ownProgress.correctCount} doğru · toplam ${formatElapsed(ownProgress.totalCorrectElapsed, "—")}</b></div>
+    ${leaders.length ? `<div class="scoreboard leaderboard-card"><h2>Doğru sayısı → toplam doğru çözüm süresi</h2>${renderLeaderboardRows(leaders, auth.currentUser?.uid)}</div>` : ""}
+    <p class="next-question-note">Öğretmen sonraki soruyu başlattığında otomatik geçeceksin.</p></article></section>`;
 }
 
 function renderCelebration(event, participant) {
-  const winners = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 3);
-  const ownPlace = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).findIndex((x) => x.uid === auth.currentUser?.uid) + 1;
-  return `<section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Etkinlik tamamlandı</span><h1><span class="gradient-text">Bravo, GR2!</span></h1><p>${participant ? `${esc(participant.fullName)}, etkinliği ${ownPlace ? `#${ownPlace} sırada` : "tamamlayarak"} bitirdin.` : "Katıldığın için teşekkürler."}</p>${winners.length ? `<div class="scoreboard"><h2>Neon podyum</h2>${winners.map((winner, index) => `<div class="leader-row"><b class="leader-rank">${["🥇", "🥈", "🥉"][index]}</b><span>${esc(winner.fullName || winner.nickname)}</span><span class="leader-points">${winner.score} puan</span></div>`).join("")}</div>` : ""}<p>${event.celebration?.fastestName ? `⚡ En hızlı cevaplayan: <b>${esc(event.celebration.fastestName)}</b><br>🕊️ En sakin cevaplayan: <b>${esc(event.celebration.slowestName)}</b>` : "Sonuçlar etkinlik analizi için kaydedildi."}</p></article></section>`;
+  const leaders = leaderboardEntries(event);
+  const winners = leaders.slice(0, 3);
+  const ownPlace = leaders.findIndex((x) => x.uid === auth.currentUser?.uid) + 1;
+  const ownProgress = getParticipantProgress(participant);
+  return `<section class="student-state"><article class="student-card glass result-card"><div class="pulse-orb"></div><span class="eyebrow">Etkinlik tamamlandı</span><h1><span class="gradient-text">Bravo, GR2!</span></h1><p>${participant ? `${esc(participant.fullName)}, etkinliği ${ownPlace ? `#${ownPlace} sırada` : "tamamlayarak"} bitirdin.` : "Katıldığın için teşekkürler."}</p><div class="personal-rank finish-summary"><span>Finalin</span><b>${ownProgress.correctCount} doğru · toplam ${formatElapsed(ownProgress.totalCorrectElapsed, "—")}</b></div>${winners.length ? `<div class="scoreboard leaderboard-card"><h2>Neon podyum</h2>${renderLeaderboardRows(winners, auth.currentUser?.uid, 3)}</div>` : ""}<p>${event.celebration?.fastestName ? `⚡ En hızlı cevaplayan: <b>${esc(event.celebration.fastestName)}</b>` : "Sonuçlar etkinlik analizi için kaydedildi."}</p><button class="neon-btn pink" data-action="leave-finished-event">Ana ekrana dön</button></article></section>`;
 }
 
 function startClock() {
@@ -402,6 +442,7 @@ function startClock() {
 
 async function markReady() {
   try {
+    await ensureParticipant();
     await update(ref(db, `events/${state.activeEventId}/participants/${auth.currentUser.uid}`), { ready: true, readyAt: serverTimestamp() });
   } catch (error) { toast(firebaseError(error), "error"); }
 }
@@ -455,6 +496,8 @@ function renderAdmin() {
       </nav>
       <section class="admin-main">${state.adminTab === "create" ? renderCreateTab() : state.adminTab === "analysis" ? renderAnalysisTab() : renderLobbyTab()}</section>
     </main>`;
+  const active = getEventsArray().find((event) => event.id === state.activeEventId && event.meta.status !== "finished");
+  scheduleAutomaticResults(active);
 }
 
 function adminTabButton(id, text) { return `<button class="${state.adminTab === id ? "active" : ""}" data-action="admin-tab" data-tab="${id}">${text}</button>`; }
@@ -509,6 +552,18 @@ function renderEventRow(event) {
   return `<div class="event-row"><div><h3>${esc(event.meta.title)}</h3><p>${formatDate(event.meta.endedAt || event.meta.createdAt)} · ${count} katılımcı · ${event.meta.questionCount} soru</p></div><div class="event-actions"><button class="ghost-btn" data-action="open-analysis" data-event-id="${event.id}">Analizi aç</button></div></div>`;
 }
 
+function renderHostScreenPreview(event) {
+  const index = event.meta.currentQuestionIndex || 0;
+  if (event.meta.status === "waiting") return `<section class="host-screen-preview lobby-preview"><span>Öğrencinin ekranı</span><strong>✦ Lobi açık</strong><p>${esc(event.meta.title)} · öğrenciler hazır olmayı bekliyor.</p></section>`;
+  if (event.meta.phase === "leaderboard") {
+    const result = event.roundResults?.[index];
+    return `<section class="host-screen-preview result-preview"><span>Öğrencinin ekranı</span><strong>Skor tahtası açık</strong><p>${result ? `${result.correct} doğru · ${result.wrong} yanlış · ${result.unanswered} boş` : "Sonuçlar yükleniyor…"}</p></section>`;
+  }
+  const question = event.public?.questions?.[index];
+  if (!question) return "";
+  return `<section class="host-screen-preview question-preview"><span>Öğrencinin ekranı · soru ${index + 1}/${event.meta.questionCount}</span><strong>${esc(question.text)}</strong><div>${question.options.map((option, optionIndex) => `<i class="preview-choice preview-choice-${optionIndex + 1}">${String.fromCharCode(65 + optionIndex)} · ${esc(option)}</i>`).join("")}</div></section>`;
+}
+
 function renderActiveManager(event) {
   const participants = activeParticipantEntries(event).map(([, participant]) => participant);
   const ready = participants.filter((participant) => participant.ready).length;
@@ -518,13 +573,13 @@ function renderActiveManager(event) {
   if (event.meta.status === "waiting") {
     control = `<button class="neon-btn pink" data-action="start-event" data-event-id="${event.id}">Etkinliği başlat</button><p>${ready} kişi hazır. Etkinliği istediğin anda başlatabilirsin.</p>`;
   } else if (event.meta.phase === "question") {
-    control = `${renderRoundCounts(event)}<button class="neon-btn pink" data-action="show-results" data-event-id="${event.id}">Sonuçları göster ve ilk 10'u aç</button>`;
+    control = `${renderRoundCounts(event)}<div class="auto-result-note"><b>Otomatik sonuç açık</b><span>Süre bittiğinde puanlar ve sıralama öğrenci ekranında kendiliğinden açılır.</span></div>`;
   } else if (event.meta.phase === "leaderboard") {
     const finalQuestion = (event.meta.currentQuestionIndex || 0) + 1 >= event.meta.questionCount;
     const result = event.roundResults?.[event.meta.currentQuestionIndex || 0] || {};
     control = `<div class="answer-counts"><span class="answer-count good">${result.correct || 0} doğru</span><span class="answer-count bad">${result.wrong || 0} yanlış</span><span class="answer-count pending">${result.unanswered || 0} boş</span></div><button class="neon-btn pink" data-action="advance-event" data-event-id="${event.id}">${finalQuestion ? "Ödül ekranını aç ve bitir" : "Sonraki soruyu başlat"}</button>`;
   }
-  return `<div class="activity-card"><span class="status ${statusClass}">${event.meta.status === "waiting" ? "Katılım açık" : event.meta.phase === "leaderboard" ? "İlk 10 ekranda" : "Canlı soru"}</span><h3>${esc(event.meta.title)}</h3><p>${event.meta.questionCount} soru · soru başına ${event.meta.timeLimit} saniye · ${event.meta.optionCount} seçenek</p><div class="mini-stat-grid"><div class="mini-stat"><strong>${joined}</strong><span>Katılan öğrenci</span></div><div class="mini-stat"><strong>${ready}</strong><span>Hazır öğrenci</span></div></div><div class="host-controls"><h3>Öğretmen kumandası</h3><p>Öğrenci ekranı canlı olarak güncellenir. Süre bittiğinde sonuç panelini açabilirsin.</p>${control}</div></div>`;
+  return `<div class="activity-card"><span class="status ${statusClass}">${event.meta.status === "waiting" ? "Katılım açık" : event.meta.phase === "leaderboard" ? "Skor tahtası açık" : "Canlı soru"}</span><h3>${esc(event.meta.title)}</h3><p>${event.meta.questionCount} soru · soru başına ${event.meta.timeLimit} saniye · ${event.meta.optionCount} seçenek</p><div class="mini-stat-grid"><div class="mini-stat"><strong>${joined}</strong><span>Katılan öğrenci</span></div><div class="mini-stat"><strong>${ready}</strong><span>Hazır öğrenci</span></div></div>${renderHostScreenPreview(event)}<div class="host-controls"><h3>Öğretmen kumandası</h3><p>Öğrencinin gördüğü alan yukarıda canlı önizlenir. Sadece sonraki soruyu sen başlatırsın.</p>${control}</div></div>`;
 }
 
 function renderRoundCounts(event) {
@@ -656,13 +711,35 @@ async function startEvent(eventId) {
 
 function currentAdminEvent(eventId) { return state.adminEvents[eventId]; }
 
-async function showResults(eventId) {
-  const event = currentAdminEvent(eventId);
+function scheduleAutomaticResults(event) {
+  clearTimeout(state.hostRoundTimer);
+  state.hostRoundTimer = null;
+  if (!event || event.meta?.status !== "live" || event.meta?.phase !== "question") return;
+  const index = event.meta.currentQuestionIndex || 0;
+  const startedAt = Number(event.rounds?.[index]?.startedAt || event.meta.questionStartedAt);
+  const limit = Number(event.meta.timeLimit || 20) * 1000;
+  if (!Number.isFinite(startedAt) || !Number.isFinite(limit)) return;
+  const wait = Math.max(0, startedAt + limit - now()) + 120;
+  state.hostRoundTimer = setTimeout(() => showResults(event.id, { automatic: true }), wait);
+}
+
+async function showResults(eventId, { automatic = false } = {}) {
+  let event;
+  try {
+    const snapshot = await get(ref(db, `events/${eventId}`));
+    event = snapshot.val();
+  } catch (error) {
+    return toast(firebaseError(error), "error");
+  }
   const index = event?.meta?.currentQuestionIndex || 0;
-  if (!event) return;
+  if (!event || event.meta.status !== "live" || event.meta.phase !== "question" || event.roundResults?.[index]) return;
   const correct = event.private?.questions?.[index]?.correct;
   if (!Number.isInteger(correct)) return toast("Doğru cevap bilgisi bulunamadı.", "error");
   const start = event.rounds?.[index]?.startedAt || event.meta.questionStartedAt;
+  const deadline = Number(start) + Number(event.meta.timeLimit || 20) * 1000;
+  if (automatic && Number.isFinite(deadline) && now() < deadline) {
+    return scheduleAutomaticResults({ ...event, id: eventId });
+  }
   const updates = {};
   const ranking = [];
   let right = 0;
@@ -673,9 +750,10 @@ async function showResults(eventId) {
     const answer = participant.answers?.[index];
     const oldScore = Number(participant.score || 0);
     let added = 0;
+    const elapsed = answer ? Math.min(Number(event.meta.timeLimit || 20) * 1000, Math.max(0, answer.answeredAt - start)) : null;
+    const isCorrect = Boolean(answer && answer.option === correct);
     if (answer) {
-      const elapsed = Math.max(0, answer.answeredAt - start);
-      if (answer.option === correct) {
+      if (isCorrect) {
         right += 1;
         added = 1000 + Math.max(0, Math.round((event.meta.timeLimit * 1000 - elapsed) / 12));
       } else wrong += 1;
@@ -684,13 +762,16 @@ async function showResults(eventId) {
       if (!slowest || elapsed > slowest.elapsed) slowest = speedEntry;
     }
     const score = oldScore + added;
+    const progress = getParticipantProgress(participant);
+    const correctCount = progress.correctCount + (isCorrect ? 1 : 0);
+    const totalCorrectElapsed = progress.totalCorrectElapsed + (isCorrect ? elapsed : 0);
     updates[`events/${eventId}/participants/${uid}/score`] = score;
-    updates[`events/${eventId}/participants/${uid}/results/${index}`] = { correct: Boolean(answer && answer.option === correct), elapsed: answer ? Math.max(0, answer.answeredAt - start) : null, points: added };
-    ranking.push({ uid, fullName: participant.fullName || participant.nickname, score });
+    updates[`events/${eventId}/participants/${uid}/results/${index}`] = { correct: isCorrect, elapsed, points: added };
+    ranking.push({ uid, fullName: participant.fullName || participant.nickname, score, correctCount, totalCorrectElapsed });
   });
-  ranking.sort((a, b) => b.score - a.score || a.fullName.localeCompare(b.fullName, "tr"));
+  ranking.sort((a, b) => b.correctCount - a.correctCount || a.totalCorrectElapsed - b.totalCorrectElapsed || a.fullName.localeCompare(b.fullName, "tr"));
   ranking.forEach((row, rank) => { updates[`events/${eventId}/leaderboard/${row.uid}`] = { ...row, rank: rank + 1 }; });
-  updates[`events/${eventId}/roundResults/${index}`] = { correct: right, wrong, unanswered: activeParticipantEntries(event).length - right - wrong, fastest: fastest ? { fullName: fastest.fullName, elapsed: fastest.elapsed } : null, slowest: slowest ? { fullName: slowest.fullName, elapsed: slowest.elapsed } : null, closedAt: serverTimestamp() };
+  updates[`events/${eventId}/roundResults/${index}`] = { correct: right, wrong, unanswered: activeParticipantEntries(event).length - right - wrong, correctOption: correct, fastest: fastest ? { fullName: fastest.fullName, elapsed: fastest.elapsed } : null, slowest: slowest ? { fullName: slowest.fullName, elapsed: slowest.elapsed } : null, closedAt: serverTimestamp() };
   updates[`events/${eventId}/meta/phase`] = "leaderboard";
   try { await update(ref(db), updates); } catch (error) { toast(firebaseError(error), "error"); }
 }
@@ -747,12 +828,13 @@ function renderAnalysisTab() {
 function renderStudentAnalysis(event) {
   const people = Object.entries(event.participants || {});
   const student = event.participants?.[state.selectedParticipantId];
-  return `<div class="analysis-grid"><article class="analysis-list glass"><h2>Katılımcılar</h2>${people.length ? people.map(([uid, person]) => `<button class="analysis-person ${uid === state.selectedParticipantId ? "active" : ""}" data-action="select-participant" data-uid="${uid}"><span class="avatar">${esc(shortName(person.fullName || person.nickname))}</span><span><b>${esc(person.fullName || person.nickname)}</b><span>${person.score || 0} puan</span></span></button>`).join("") : `<p>Katılımcı verisi yok.</p>`}</article><article class="analysis-details glass">${student ? renderStudentDetails(event, student) : `<p>Bir öğrenci seç.</p>`}</article></div>`;
+  return `<div class="analysis-grid"><article class="analysis-list glass"><h2>Katılımcılar</h2>${people.length ? people.map(([uid, person]) => { const progress = getParticipantProgress(person); return `<button class="analysis-person ${uid === state.selectedParticipantId ? "active" : ""}" data-action="select-participant" data-uid="${uid}"><span class="avatar">${esc(shortName(person.fullName || person.nickname))}</span><span><b>${esc(person.fullName || person.nickname)}</b><span>${progress.correctCount} doğru · ${formatElapsed(progress.totalCorrectElapsed, "—")}</span></span></button>`; }).join("") : `<p>Katılımcı verisi yok.</p>`}</article><article class="analysis-details glass">${student ? renderStudentDetails(event, student) : `<p>Bir öğrenci seç.</p>`}</article></div>`;
 }
 
 function renderStudentDetails(event, student) {
   const results = Object.values(student.results || {});
   const correct = results.filter((result) => result.correct).length;
+  const progress = getParticipantProgress(student);
   const timed = results.filter((result) => Number.isFinite(result.elapsed));
   const average = timed.length ? Math.round(timed.reduce((sum, result) => sum + result.elapsed, 0) / timed.length / 100) / 10 : 0;
   const questionAnalysis = Object.entries(event.roundResults || {}).map(([index, result]) => ({ index: Number(index), rate: result.correct / Math.max(1, result.correct + result.wrong) })).sort((a, b) => a.rate - b.rate);
@@ -760,7 +842,7 @@ function renderStudentDetails(event, student) {
   const fiveEasy = questionAnalysis.slice(-5).map((x) => x.index);
   const hardCorrect = fiveHard.filter((index) => student.results?.[index]?.correct).length;
   const easyCorrect = fiveEasy.filter((index) => student.results?.[index]?.correct).length;
-  return `<h2>${esc(student.fullName || student.nickname)}</h2><p>Bireysel performans özeti.</p><div class="metric-row"><div class="metric"><strong>${correct}/${event.meta.questionCount}</strong><span>Doğru yanıt</span></div><div class="metric"><strong>${average}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${student.score || 0}</strong><span>Toplam puan</span></div></div><p><b>Zorlayıcı 5 soruda:</b> ${hardCorrect}/${fiveHard.length || 0} doğru · <b>En kolay 5 soruda:</b> ${easyCorrect}/${fiveEasy.length || 0} doğru</p><div class="question-result-list">${Array.from({ length: event.meta.questionCount }, (_, index) => { const result = student.results?.[index]; return `<div class="question-result ${result?.correct ? "correct" : "wrong"}"><span>${index + 1}. soru</span><span>${result ? result.correct ? "Doğru" : "Yanlış" : "Boş"}</span><span>${Number.isFinite(result?.elapsed) ? `${(result.elapsed / 1000).toFixed(1)} sn` : "—"}</span></div>`; }).join("")}</div>`;
+  return `<h2>${esc(student.fullName || student.nickname)}</h2><p>Bireysel performans özeti.</p><div class="metric-row"><div class="metric"><strong>${correct}/${event.meta.questionCount}</strong><span>Doğru yanıt</span></div><div class="metric"><strong>${average}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${formatElapsed(progress.totalCorrectElapsed, "—")}</strong><span>Toplam doğru çözüm süresi</span></div></div><p><b>Zorlayıcı 5 soruda:</b> ${hardCorrect}/${fiveHard.length || 0} doğru · <b>En kolay 5 soruda:</b> ${easyCorrect}/${fiveEasy.length || 0} doğru</p><div class="question-result-list">${Array.from({ length: event.meta.questionCount }, (_, index) => { const result = student.results?.[index]; return `<div class="question-result ${result?.correct ? "correct" : "wrong"}"><span>${index + 1}. soru</span><span>${result ? result.correct ? "Doğru" : "Yanlış" : "Boş"}</span><span>${Number.isFinite(result?.elapsed) ? `${(result.elapsed / 1000).toFixed(1)} sn` : "—"}</span></div>`; }).join("")}</div>`;
 }
 
 function renderQuestionAnalysis(event) {
@@ -806,6 +888,24 @@ async function signOutAdmin() {
   } catch (error) { toast(firebaseError(error), "error"); }
 }
 
+async function leaveFinishedEvent() {
+  clearListeners();
+  clearInterval(state.clockHandle);
+  state.clockHandle = null;
+  state.activeEvent = null;
+  state.activeEventId = null;
+  state.participant = null;
+  localStorage.removeItem(SESSION_KEY);
+  try {
+    if (auth.currentUser?.isAnonymous) await signOut(auth);
+  } catch (error) {
+    toast(firebaseError(error), "error");
+  } finally {
+    state.currentPage = "landing";
+    render();
+  }
+}
+
 document.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-action]");
   if (!target) return;
@@ -832,6 +932,7 @@ document.addEventListener("click", async (event) => {
   if (action === "select-participant") { state.selectedParticipantId = target.dataset.uid; render(); }
   if (action === "kick-participant") kickParticipant(target.dataset.eventId, target.dataset.uid);
   if (action === "sign-out") signOutAdmin();
+  if (action === "leave-finished-event") leaveFinishedEvent();
 });
 
 document.addEventListener("submit", (event) => {
