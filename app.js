@@ -34,7 +34,7 @@ const state = {
   currentPage: "landing",
   activeEvent: null,
   activeEventId: null,
-  adminTab: "history",
+  adminTab: "lobby",
   adminEvents: {},
   createDraft: makeDraft(),
   selectedAnalysisId: null,
@@ -42,6 +42,7 @@ const state = {
   analysisView: "student",
   participant: readStoredParticipant(),
   clockHandle: null,
+  serverTimeOffset: 0,
   unsubscribers: [],
   studentEventUnsubscribers: []
 };
@@ -69,7 +70,7 @@ function shortName(name = "") {
   return name.split(" ").filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "GR";
 }
 
-function now() { return Date.now(); }
+function now() { return Date.now() + state.serverTimeOffset; }
 function formatDate(value) {
   if (!value || typeof value !== "number") return "Tarih bekleniyor";
   return new Intl.DateTimeFormat("tr-TR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
@@ -87,6 +88,7 @@ function firebaseError(error) {
   console.error(error);
   const messages = {
     "auth/operation-not-allowed": "Firebase Authentication içinde Anonymous ve E-posta/Şifre yöntemlerini etkinleştirin.",
+    "auth/admin-restricted-operation": "Öğrenci katılımı Firebase tarafından engellenmiş. Authentication → Settings → User actions bölümünde hesap oluşturmayı etkinleştirin.",
     "auth/invalid-credential": "Kullanıcı adı veya şifre hatalı.",
     "auth/user-not-found": "Kullanıcı adı veya şifre hatalı.",
     "auth/wrong-password": "Kullanıcı adı veya şifre hatalı.",
@@ -133,15 +135,30 @@ function render() {
 function topbar() {
   return `
     <header class="topbar">
-      <a href="#" class="brand" data-action="home" aria-label="GR2 Live ana sayfa">
-        <span class="brand-mark">G2</span>
-        <span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span>
-      </a>
+      <div class="site-identity">
+        ${nationalRibbon()}
+        <a href="#" class="brand" data-action="home" aria-label="GR2 Live ana sayfa">
+          ${universityLogo()}<span class="brand-mark">G2</span>
+          <span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span>
+        </a>
+      </div>
       <div class="nav-actions">
         <button class="ghost-btn" data-action="show-qr">▣ QR kodu göster</button>
         <button class="neon-btn pink" data-action="show-admin-login">Yönetici girişi</button>
       </div>
     </header>`;
+}
+
+function nationalRibbon() {
+  return `<div class="national-ribbon" aria-label="Türkiye, Atatürk ve Kuzey Kıbrıs Türk Cumhuriyeti">
+    <img src="./assets/turkiye-bayragi.svg" alt="Türkiye bayrağı" />
+    <span class="ataturk-frame" title="Atatürk görseli"><img src="./assets/ataturk.jpeg" alt="Atatürk" onerror="this.style.display='none'" /></span>
+    <img src="./assets/kktc-bayragi.svg" alt="Kuzey Kıbrıs Türk Cumhuriyeti bayrağı" />
+  </div>`;
+}
+
+function universityLogo() {
+  return `<span class="university-logo"><img src="https://basvuru.eul.edu.tr/basvuru/images/logouni.jpg" alt="Lefke Avrupa Üniversitesi logosu" referrerpolicy="no-referrer" /></span>`;
 }
 
 function renderLanding() {
@@ -160,7 +177,7 @@ function renderLanding() {
           </div>
           <div class="notice-card glass">
             <div class="icon-bubble">✦</div>
-            <div><strong>İsmin seni temsil eder.</strong><p>Katılırken gerçek ad ve soyadını kullanman zorunludur. Takma adını ise istediğin gibi, saygılı bir biçimde seçebilirsin.</p></div>
+            <div><strong>İsmin seni temsil eder.</strong><p>Katılırken gerçek adını ve soyadını kullanman zorunludur. Bu isim etkinlik ve analiz ekranlarında görünür.</p></div>
           </div>
         </div>
       </section>
@@ -184,8 +201,7 @@ function joinModal() {
   openModal(`
     <div class="modal-head"><div><h2>Etkinliğe katıl</h2><p class="subcopy">${eventName ? `Sıradaki etkinlik: <b>${esc(eventName)}</b>` : "İsminle katıl; etkinlik hazır olduğunda burada ol."}</p></div><button class="close" data-action="close-modal" aria-label="Kapat">×</button></div>
     <form id="join-form" class="form-grid">
-      <div class="field"><label for="full-name">Gerçek adın ve soyadın</label><input id="full-name" name="fullName" autocomplete="name" placeholder="Örnek: Ada Yılmaz" required autofocus value="${esc(state.participant?.fullName || "")}" /><small>Etkinlik raporunda görünür. Lütfen gerçek adını ve soyadını yaz.</small></div>
-      <div class="field"><label for="nickname">Takma adın</label><input id="nickname" name="nickname" maxlength="22" placeholder="Örnek: NeonFox" required value="${esc(state.participant?.nickname || "")}" /><small>Skor tablosunda bu ad görünür. Küfür, ayrımcılık ve başkasının adını kullanmak yasaktır.</small></div>
+      <div class="field"><label for="full-name">Gerçek adın ve soyadın</label><input id="full-name" name="fullName" autocomplete="name" placeholder="Örnek: Ada Yılmaz" required autofocus value="${esc(state.participant?.fullName || "")}" /><small>Etkinlik, lobi ve analiz ekranlarında bu isim görünür.</small></div>
       <p class="identity-note">Gerçek ad ve soyad kullanmak zorunludur. Katılım verilerin yalnızca öğretim amaçlı etkinlik analizi için kullanılır.</p>
       <div class="modal-actions"><button class="ghost-btn" type="button" data-action="close-modal">Vazgeç</button><button class="neon-btn pink" type="submit">Katıl ve hazır ol</button></div>
     </form>`);
@@ -238,12 +254,10 @@ async function submitAdminLogin(form) {
 async function submitJoin(form) {
   const data = new FormData(form);
   const fullName = String(data.get("fullName") || "").trim().replace(/\s+/g, " ");
-  const nickname = String(data.get("nickname") || "").trim().replace(/\s+/g, " ");
   if (fullName.split(" ").filter(Boolean).length < 2 || fullName.length < 5) return toast("Lütfen gerçek adını ve soyadını birlikte yaz.", "error");
-  if (nickname.length < 2) return toast("Takma adın en az iki karakter olmalı.", "error");
   try {
     if (!auth.currentUser || !auth.currentUser.isAnonymous) await signInAnonymously(auth);
-    storeParticipant({ fullName, nickname });
+    storeParticipant({ fullName });
     closeModal();
     state.currentPage = "student";
     setupStudentListeners();
@@ -265,13 +279,17 @@ function setupStudentListeners() {
     }
     state.activeEvent = {};
     const loadSlice = (key) => onValue(ref(db, `events/${state.activeEventId}/${key}`), (snapshot) => {
-      state.activeEvent = key.startsWith("participants/")
-        ? { ...state.activeEvent, participants: { [auth.currentUser.uid]: snapshot.val() } }
-        : { ...state.activeEvent, [key]: snapshot.val() };
+      if (key.startsWith("participants/")) {
+        state.activeEvent = { ...state.activeEvent, participants: { [auth.currentUser.uid]: snapshot.val() } };
+      } else if (key.startsWith("kicked/")) {
+        state.activeEvent = { ...state.activeEvent, kicked: { [auth.currentUser.uid]: snapshot.val() } };
+      } else {
+        state.activeEvent = { ...state.activeEvent, [key]: snapshot.val() };
+      }
       if (key === "meta" && state.participant && auth.currentUser && snapshot.val()?.status !== "finished") ensureParticipant();
       render();
     }, (error) => toast(firebaseError(error), "error"));
-    ["meta", "public", "leaderboard", "roundResults", "celebration", `participants/${auth.currentUser.uid}`].forEach((key) => {
+    ["meta", "public", "leaderboard", "roundResults", "celebration", `participants/${auth.currentUser.uid}`, `kicked/${auth.currentUser.uid}`].forEach((key) => {
       const unsubscribe = loadSlice(key);
       state.studentEventUnsubscribers.push(unsubscribe);
     });
@@ -283,11 +301,12 @@ async function ensureParticipant() {
   if (!user || !state.activeEventId || !state.participant) return;
   const profilePath = `events/${state.activeEventId}/participants/${user.uid}`;
   try {
+    const kickedSnapshot = await get(ref(db, `events/${state.activeEventId}/kicked/${user.uid}`));
+    if (kickedSnapshot.exists()) return;
     const snapshot = await get(ref(db, profilePath));
     if (!snapshot.exists()) {
       await set(ref(db, profilePath), {
         fullName: state.participant.fullName,
-        nickname: state.participant.nickname,
         joinedAt: now(),
         ready: false,
         score: 0
@@ -302,8 +321,11 @@ function renderStudent() {
   appRoot.innerHTML = `
     <main class="student-shell">
       <header class="student-top">
-        <a href="#" class="brand" data-action="home"><span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span></a>
-        <div class="participant-pill"><span class="avatar">${esc(shortName(state.participant?.nickname))}</span><span><b>${esc(state.participant?.nickname || "Misafir")}</b><br>Öğrenci modu</span></div>
+        <div class="site-identity">
+          ${nationalRibbon()}
+          <a href="#" class="brand" data-action="home">${universityLogo()}<span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Live</em></span></span></a>
+        </div>
+        <div class="participant-pill"><span class="avatar">${esc(shortName(state.participant?.fullName))}</span><span><b>${esc(state.participant?.fullName || "Misafir")}</b><br>Öğrenci modu</span></div>
       </header>
       ${studentBody(event, participant)}
     </main>`;
@@ -313,8 +335,10 @@ function renderStudent() {
 function studentBody(event, participant) {
   if (!event?.meta) return `
     <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Sahne hazırlanıyor</span><h1>Pembe Hoca henüz etkinlik hazırlamadı.</h1><p>Yeni etkinlik açıldığında bu sayfa kendiliğinden güncellenir. Hazır ol; ilk soru her an ekrana gelebilir.</p><button class="ghost-btn" data-action="back-landing">Ana sayfaya dön</button></article></section>`;
+  if (event.kicked?.[auth.currentUser?.uid]) return `
+    <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Lobi bildirimi</span><h1>Katılımın sonlandırıldı.</h1><p>Lobi yöneticisi bu etkinlikteki katılımını sonlandırdı. Yeni bir etkinlik açıldığında tekrar katılabilirsin.</p><button class="ghost-btn" data-action="back-landing">Ana sayfaya dön</button></article></section>`;
   if (event.meta.status === "waiting") return `
-    <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="status ready">Etkinlik hazır</span><h1>${esc(event.meta.title)}</h1><p>Pembe Hoca etkinliği hazırladı; ancak henüz başlatmadı. ${participant?.ready ? "Hazır olduğunu bildirdin. Sadece başlangıç işaretini bekle." : "Katılmaya hazır olduğunda aşağıdaki düğmeye dokun."}</p>${participant?.ready ? `<div class="ready-check">✓</div><p><b>Hazırsın!</b> Etkinlik en az 5 hazır katılımcıyla başlayabilir.</p>` : `<button class="neon-btn pink" data-action="mark-ready">Hazırım</button>`}</article></section>`;
+    <section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="status ready">Etkinlik hazır</span><h1>${esc(event.meta.title)}</h1><p>Pembe Hoca etkinliği hazırladı; ancak henüz başlatmadı. ${participant?.ready ? "Hazır olduğunu bildirdin. Sadece başlangıç işaretini bekle." : "Katılmaya hazır olduğunda aşağıdaki düğmeye dokun."}</p>${participant?.ready ? `<div class="ready-check">✓</div><p><b>Hazırsın!</b> Başlangıç işaretini bekle.</p>` : `<button class="neon-btn pink" data-action="mark-ready">Hazırım</button>`}</article></section>`;
   if (event.meta.status === "finished") return renderCelebration(event, participant);
   if (event.meta.phase === "leaderboard") return renderLeaderboardPause(event, participant);
   return renderLiveQuestion(event, participant);
@@ -343,20 +367,20 @@ function renderLiveQuestion(event, participant) {
 function renderSmallLeaderboard(event) {
   const leaders = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 5);
   if (!leaders.length) return "";
-  return `<article class="scoreboard glass"><h2>Canlı ilk 5</h2>${leaders.map((leader, index) => `<div class="leader-row"><b class="leader-rank">#${index + 1}</b><span>${esc(leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</article>`;
+  return `<article class="scoreboard glass"><h2>Canlı ilk 5</h2>${leaders.map((leader, index) => `<div class="leader-row"><b class="leader-rank">#${index + 1}</b><span>${esc(leader.fullName || leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</article>`;
 }
 
 function renderLeaderboardPause(event, participant) {
   const index = event.meta.currentQuestionIndex || 0;
   const result = event.roundResults?.[index];
   const leaders = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 10);
-  return `<section class="student-state"><article class="student-card glass"><span class="eyebrow">Soru ${index + 1} tamamlandı</span><h1><span class="gradient-text">İlk 10</span> sahnede!</h1><p>${result ? `${result.correct} doğru, ${result.wrong} yanlış cevap geldi.` : "Sonuçlar hesaplanıyor."}</p>${leaders.length ? `<div class="scoreboard">${leaders.map((leader, position) => `<div class="leader-row"><b class="leader-rank">#${position + 1}</b><span>${esc(leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</div>` : ""}<p>Bir sonraki soru için Pembe Hoca'nın işaretini bekle.</p></article></section>`;
+  return `<section class="student-state"><article class="student-card glass"><span class="eyebrow">Soru ${index + 1} tamamlandı</span><h1><span class="gradient-text">İlk 10</span> sahnede!</h1><p>${result ? `${result.correct} doğru, ${result.wrong} yanlış cevap geldi.` : "Sonuçlar hesaplanıyor."}</p>${leaders.length ? `<div class="scoreboard">${leaders.map((leader, position) => `<div class="leader-row"><b class="leader-rank">#${position + 1}</b><span>${esc(leader.fullName || leader.nickname)}</span><span class="leader-points">${leader.score} puan</span></div>`).join("")}</div>` : ""}<p>Bir sonraki soru için Pembe Hoca'nın işaretini bekle.</p></article></section>`;
 }
 
 function renderCelebration(event, participant) {
   const winners = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).slice(0, 3);
   const ownPlace = Object.values(event.leaderboard || {}).sort((a, b) => b.score - a.score).findIndex((x) => x.uid === auth.currentUser?.uid) + 1;
-  return `<section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Etkinlik tamamlandı</span><h1><span class="gradient-text">Bravo, GR2!</span></h1><p>${participant ? `${esc(participant.nickname)}, etkinliği ${ownPlace ? `#${ownPlace} sırada` : "tamamlayarak"} bitirdin.` : "Katıldığın için teşekkürler."}</p>${winners.length ? `<div class="scoreboard"><h2>Neon podyum</h2>${winners.map((winner, index) => `<div class="leader-row"><b class="leader-rank">${["🥇", "🥈", "🥉"][index]}</b><span>${esc(winner.nickname)}</span><span class="leader-points">${winner.score} puan</span></div>`).join("")}</div>` : ""}<p>${event.celebration?.fastestName ? `⚡ En hızlı cevaplayan: <b>${esc(event.celebration.fastestName)}</b><br>🕊️ En sakin cevaplayan: <b>${esc(event.celebration.slowestName)}</b>` : "Sonuçlar etkinlik analizi için kaydedildi."}</p></article></section>`;
+  return `<section class="student-state"><article class="student-card glass"><div class="pulse-orb"></div><span class="eyebrow">Etkinlik tamamlandı</span><h1><span class="gradient-text">Bravo, GR2!</span></h1><p>${participant ? `${esc(participant.fullName)}, etkinliği ${ownPlace ? `#${ownPlace} sırada` : "tamamlayarak"} bitirdin.` : "Katıldığın için teşekkürler."}</p>${winners.length ? `<div class="scoreboard"><h2>Neon podyum</h2>${winners.map((winner, index) => `<div class="leader-row"><b class="leader-rank">${["🥇", "🥈", "🥉"][index]}</b><span>${esc(winner.fullName || winner.nickname)}</span><span class="leader-points">${winner.score} puan</span></div>`).join("")}</div>` : ""}<p>${event.celebration?.fastestName ? `⚡ En hızlı cevaplayan: <b>${esc(event.celebration.fastestName)}</b><br>🕊️ En sakin cevaplayan: <b>${esc(event.celebration.slowestName)}</b>` : "Sonuçlar etkinlik analizi için kaydedildi."}</p></article></section>`;
 }
 
 function startClock() {
@@ -380,7 +404,7 @@ function startClock() {
 
 async function markReady() {
   try {
-    await update(ref(db, `events/${state.activeEventId}/participants/${auth.currentUser.uid}`), { ready: true, readyAt: now() });
+    await update(ref(db, `events/${state.activeEventId}/participants/${auth.currentUser.uid}`), { ready: true, readyAt: serverTimestamp() });
   } catch (error) { toast(firebaseError(error), "error"); }
 }
 
@@ -420,15 +444,18 @@ function renderAdmin() {
   appRoot.innerHTML = `
     <main class="admin-shell">
       <header class="admin-top">
-        <a href="#" class="brand" data-action="admin-home"><span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Admin</em></span></span></a>
+        <div class="site-identity">
+          ${nationalRibbon()}
+          <a href="#" class="brand" data-action="admin-home">${universityLogo()}<span class="brand-mark">G2</span><span><small>Lefke Avrupa Üniversitesi</small><span>GR2 <em>Admin</em></span></span></a>
+        </div>
         <div class="nav-actions"><span class="status ${profile.canAuthor ? "live" : "ready"}">${profile.canAuthor ? "Soru editörü" : "Yönetici"}</span><button class="ghost-btn" data-action="sign-out">Çıkış yap</button></div>
       </header>
       <nav class="admin-tabs" aria-label="Yönetici menüsü">
-        ${adminTabButton("history", "Geçmiş etkinlikler")}
+        ${adminTabButton("lobby", "Lobi")}
         ${adminTabButton("create", "Yeni etkinlik oluştur")}
         ${adminTabButton("analysis", "Detaylı analiz")}
       </nav>
-      <section class="admin-main">${state.adminTab === "create" ? renderCreateTab() : state.adminTab === "analysis" ? renderAnalysisTab() : renderHistoryTab()}</section>
+      <section class="admin-main">${state.adminTab === "create" ? renderCreateTab() : state.adminTab === "analysis" ? renderAnalysisTab() : renderLobbyTab()}</section>
     </main>`;
 }
 
@@ -450,6 +477,31 @@ function renderHistoryTab() {
     </div>`;
 }
 
+function renderLobbyTab() {
+  const events = getEventsArray().sort((a, b) => (b.meta.createdAt || 0) - (a.meta.createdAt || 0));
+  const active = events.find((event) => event.id === state.activeEventId && event.meta.status !== "finished");
+  const past = events.filter((event) => event.meta.status === "finished");
+  return `
+    <div class="section-title"><div><h1>Canlı lobi</h1><p>Katılımcılar tüm cihazlarda anlık güncellenir. Gerektiğinde bir katılımcının etkinlik erişimini buradan sonlandırabilirsin.</p></div><button class="neon-btn pink" data-action="go-create">＋ Yeni etkinlik</button></div>
+    <div class="dash-grid">
+      <article class="panel glass">
+        <h2>Etkinlik merkezi</h2>
+        ${active ? renderActiveManager(active) : `<div class="empty"><div><div class="empty-symbol">◌</div><h3>Şu an açık etkinlik yok.</h3><p>Yeni bir etkinlik hazırladığında öğrenciler bu sayfada lobide görünür.</p><button class="neon-btn" data-action="go-create">Yeni etkinlik oluştur</button></div></div>`}
+      </article>
+      <article class="panel glass">
+        <h2>${active ? `Lobidekiler · ${Object.keys(active.participants || {}).length}` : "Lobi boş"}</h2>
+        ${active ? renderLobbyParticipants(active) : `<div class="empty"><div><div class="empty-symbol">✦</div><h3>Katılımcı bekleniyor.</h3><p>Etkinlik açıldığında öğrenciler burada isimleriyle görünür.</p></div></div>`}
+      </article>
+    </div>
+    ${past.length ? `<article class="panel glass lobby-history"><h2>Son tamamlanan etkinlikler</h2><div class="event-list">${past.slice(0, 5).map(renderEventRow).join("")}</div></article>` : ""}`;
+}
+
+function renderLobbyParticipants(event) {
+  const participants = Object.entries(event.participants || {}).sort(([, a], [, b]) => (a.joinedAt || 0) - (b.joinedAt || 0));
+  if (!participants.length) return `<div class="empty compact-empty"><div><div class="empty-symbol">◌</div><h3>Henüz kimse katılmadı.</h3><p>QR kodla veya bağlantıyla katılan öğrenciler burada görünür.</p></div></div>`;
+  return `<div class="lobby-list">${participants.map(([uid, participant]) => `<div class="lobby-person"><span class="avatar">${esc(shortName(participant.fullName || participant.nickname))}</span><span class="lobby-person-copy"><b>${esc(participant.fullName || participant.nickname)}</b><span>${participant.ready ? "Hazır" : "Bekliyor"}</span></span><button class="danger-btn" data-action="kick-participant" data-event-id="${event.id}" data-uid="${uid}">Lobiden çıkar</button></div>`).join("")}</div>`;
+}
+
 function renderEventRow(event) {
   const count = Object.keys(event.participants || {}).length;
   return `<div class="event-row"><div><h3>${esc(event.meta.title)}</h3><p>${formatDate(event.meta.endedAt || event.meta.createdAt)} · ${count} katılımcı · ${event.meta.questionCount} soru</p></div><div class="event-actions"><button class="ghost-btn" data-action="open-analysis" data-event-id="${event.id}">Analizi aç</button></div></div>`;
@@ -461,7 +513,7 @@ function renderActiveManager(event) {
   const statusClass = event.meta.status === "live" ? "live" : "ready";
   let control = "";
   if (event.meta.status === "waiting") {
-    control = `<button class="neon-btn pink" data-action="start-event" data-event-id="${event.id}" ${ready < 5 ? "disabled" : ""}>Etkinliği başlat</button>${ready < 5 ? `<p>Başlamak için en az 5 hazır katılımcı gerekir. Şimdilik ${ready}/5 hazır.</p>` : ""}`;
+    control = `<button class="neon-btn pink" data-action="start-event" data-event-id="${event.id}">Etkinliği başlat</button><p>${ready} kişi hazır. Etkinliği istediğin anda başlatabilirsin.</p>`;
   } else if (event.meta.phase === "question") {
     control = `${renderRoundCounts(event)}<button class="neon-btn pink" data-action="show-results" data-event-id="${event.id}">Sonuçları göster ve ilk 10'u aç</button>`;
   } else if (event.meta.phase === "leaderboard") {
@@ -491,9 +543,10 @@ function renderCreateTab() {
       <article class="question-builder glass">
         <h2>Soru editörü</h2><p>Her soruda ${draft.optionCount} seçenek var. Yeşil işaretli seçenek doğru yanıt olarak değerlendirilir.</p>
         <div class="builder-config">
-          <div class="field"><label>Etkinlik başlığı</label><input id="draft-title" value="${esc(draft.title)}" maxlength="80" placeholder="Örnek: Unit 3 — Vocabulary Challenge" /></div>
-          <div class="field"><label>Soru sayısı</label><select id="draft-count">${[5, 10, 15, 20, 25, 30].map((n) => `<option value="${n}" ${n === draft.questionCount ? "selected" : ""}>${n} soru</option>`).join("")}</select></div>
-          <div class="field"><label>Seçenek / süre</label><select id="draft-options">${[4, 5].map((n) => `<option value="${n}" ${n === draft.optionCount ? "selected" : ""}>${n} seçenek</option>`).join("")}</select><select id="draft-time">${[10, 15, 20, 30, 45, 60].map((n) => `<option value="${n}" ${n === draft.timeLimit ? "selected" : ""}>${n} saniye</option>`).join("")}</select></div>
+          <div class="field"><label for="draft-title">Etkinlik başlığı</label><input id="draft-title" value="${esc(draft.title)}" maxlength="80" placeholder="Örnek: Unit 3 — Vocabulary Challenge" /></div>
+          <div class="field"><label for="draft-count">Soru sayısı</label><input id="draft-count" type="number" min="2" max="50" step="2" inputmode="numeric" value="${draft.questionCount}" /><small>2–50 arası çift sayı</small></div>
+          <div class="field"><label for="draft-options">Seçenek sayısı</label><select id="draft-options">${[4, 5].map((n) => `<option value="${n}" ${n === draft.optionCount ? "selected" : ""}>${n} seçenek</option>`).join("")}</select></div>
+          <div class="field"><label for="draft-time">Soru süresi</label><input id="draft-time" type="number" min="2" max="120" step="2" inputmode="numeric" value="${draft.timeLimit}" /><small>2–120 sn, çift sayı</small></div>
         </div>
         <button class="ghost-btn" data-action="apply-builder">Ayarları uygula</button>
         <div id="question-stack" class="question-stack" style="margin-top:18px">${draft.questions.map((question, index) => questionEditor(question, index)).join("")}</div>
@@ -525,6 +578,8 @@ function applyBuilder() {
   const previous = state.createDraft;
   readDraftFromScreen();
   const { questionCount, optionCount } = state.createDraft;
+  if (!isEvenNumberInRange(questionCount, 2, 50)) return toast("Soru sayısı 2 ile 50 arasında çift sayı olmalı.", "error");
+  if (!isEvenNumberInRange(state.createDraft.timeLimit, 2, 120)) return toast("Soru süresi 2 ile 120 saniye arasında çift sayı olmalı.", "error");
   state.createDraft.questions = Array.from({ length: questionCount }, (_, index) => {
     const old = previous.questions[index] || state.createDraft.questions[index];
     return { text: old?.text || "", correct: Math.min(old?.correct || 0, optionCount - 1), options: Array.from({ length: optionCount }, (__, optionIndex) => old?.options?.[optionIndex] || "") };
@@ -532,10 +587,16 @@ function applyBuilder() {
   render();
 }
 
+function isEvenNumberInRange(value, minimum, maximum) {
+  return Number.isInteger(value) && value >= minimum && value <= maximum && value % 2 === 0;
+}
+
 function validateDraft() {
   readDraftFromScreen();
   const draft = state.createDraft;
   if (!draft.title) return "Etkinlik için bir başlık yazmalısın.";
+  if (!isEvenNumberInRange(draft.questionCount, 2, 50)) return "Soru sayısı 2 ile 50 arasında çift sayı olmalı.";
+  if (!isEvenNumberInRange(draft.timeLimit, 2, 120)) return "Soru süresi 2 ile 120 saniye arasında çift sayı olmalı.";
   if (draft.questions.length !== draft.questionCount) return "Soru sayısını uygulamak için “Ayarları uygula” düğmesine bas.";
   for (let index = 0; index < draft.questions.length; index += 1) {
     const question = draft.questions[index];
@@ -551,7 +612,7 @@ async function publishActivity() {
   if (validation) return toast(validation, "error");
   const draft = state.createDraft;
   const eventId = push(ref(db, "events")).key;
-  const createdAt = now();
+  const createdAt = serverTimestamp();
   const publicQuestions = {};
   const privateQuestions = {};
   draft.questions.forEach((question, index) => {
@@ -575,9 +636,8 @@ async function publishActivity() {
 
 async function startEvent(eventId) {
   const event = state.adminEvents[eventId];
-  const ready = Object.values(event?.participants || {}).filter((participant) => participant.ready).length;
-  if (ready < 5) return toast(`Başlatmak için 5 hazır katılımcı gerekir. Şu an ${ready} kişi hazır.`, "error");
-  const startedAt = now();
+  if (!event) return toast("Etkinlik bulunamadı.", "error");
+  const startedAt = serverTimestamp();
   try {
     await update(ref(db), {
       [`events/${eventId}/meta/status`]: "live",
@@ -615,18 +675,18 @@ async function showResults(eventId) {
         right += 1;
         added = 1000 + Math.max(0, Math.round((event.meta.timeLimit * 1000 - elapsed) / 12));
       } else wrong += 1;
-      const speedEntry = { uid, nickname: participant.nickname, elapsed };
+      const speedEntry = { uid, fullName: participant.fullName || participant.nickname, elapsed };
       if (!fastest || elapsed < fastest.elapsed) fastest = speedEntry;
       if (!slowest || elapsed > slowest.elapsed) slowest = speedEntry;
     }
     const score = oldScore + added;
     updates[`events/${eventId}/participants/${uid}/score`] = score;
     updates[`events/${eventId}/participants/${uid}/results/${index}`] = { correct: Boolean(answer && answer.option === correct), elapsed: answer ? Math.max(0, answer.answeredAt - start) : null, points: added };
-    ranking.push({ uid, nickname: participant.nickname, score });
+    ranking.push({ uid, fullName: participant.fullName || participant.nickname, score });
   });
-  ranking.sort((a, b) => b.score - a.score || a.nickname.localeCompare(b.nickname, "tr"));
+  ranking.sort((a, b) => b.score - a.score || a.fullName.localeCompare(b.fullName, "tr"));
   ranking.forEach((row, rank) => { updates[`events/${eventId}/leaderboard/${row.uid}`] = { ...row, rank: rank + 1 }; });
-  updates[`events/${eventId}/roundResults/${index}`] = { correct: right, wrong, unanswered: Object.keys(event.participants || {}).length - right - wrong, fastest: fastest ? { nickname: fastest.nickname, elapsed: fastest.elapsed } : null, slowest: slowest ? { nickname: slowest.nickname, elapsed: slowest.elapsed } : null, closedAt: now() };
+  updates[`events/${eventId}/roundResults/${index}`] = { correct: right, wrong, unanswered: Object.keys(event.participants || {}).length - right - wrong, fastest: fastest ? { fullName: fastest.fullName, elapsed: fastest.elapsed } : null, slowest: slowest ? { fullName: slowest.fullName, elapsed: slowest.elapsed } : null, closedAt: serverTimestamp() };
   updates[`events/${eventId}/meta/phase`] = "leaderboard";
   try { await update(ref(db), updates); } catch (error) { toast(firebaseError(error), "error"); }
 }
@@ -648,13 +708,13 @@ async function advanceEvent(eventId) {
       await update(ref(db), {
         [`events/${eventId}/meta/status`]: "finished",
         [`events/${eventId}/meta/phase`]: "finished",
-        [`events/${eventId}/meta/endedAt`]: now(),
-        [`events/${eventId}/celebration`]: { fastestName: fastest?.nickname || null, slowestName: slowest?.nickname || null },
-        activeEvent: { eventId, status: "finished", updatedAt: now() }
+        [`events/${eventId}/meta/endedAt`]: serverTimestamp(),
+        [`events/${eventId}/celebration`]: { fastestName: fastest?.fullName || fastest?.nickname || null, slowestName: slowest?.fullName || slowest?.nickname || null },
+        activeEvent: { eventId, status: "finished", updatedAt: serverTimestamp() }
       });
       toast("Etkinlik tamamlandı. Ödül ekranı öğrencilerde açık.", "success");
     } else {
-      const startedAt = now();
+      const startedAt = serverTimestamp();
       await update(ref(db), {
         [`events/${eventId}/meta/phase`]: "question",
         [`events/${eventId}/meta/currentQuestionIndex`]: next,
@@ -683,7 +743,7 @@ function renderAnalysisTab() {
 function renderStudentAnalysis(event) {
   const people = Object.entries(event.participants || {});
   const student = event.participants?.[state.selectedParticipantId];
-  return `<div class="analysis-grid"><article class="analysis-list glass"><h2>Katılımcılar</h2>${people.length ? people.map(([uid, person]) => `<button class="analysis-person ${uid === state.selectedParticipantId ? "active" : ""}" data-action="select-participant" data-uid="${uid}"><span class="avatar">${esc(shortName(person.nickname))}</span><span><b>${esc(person.fullName)}</b><span>${esc(person.nickname)} · ${person.score || 0} puan</span></span></button>`).join("") : `<p>Katılımcı verisi yok.</p>`}</article><article class="analysis-details glass">${student ? renderStudentDetails(event, student) : `<p>Bir öğrenci seç.</p>`}</article></div>`;
+  return `<div class="analysis-grid"><article class="analysis-list glass"><h2>Katılımcılar</h2>${people.length ? people.map(([uid, person]) => `<button class="analysis-person ${uid === state.selectedParticipantId ? "active" : ""}" data-action="select-participant" data-uid="${uid}"><span class="avatar">${esc(shortName(person.fullName || person.nickname))}</span><span><b>${esc(person.fullName || person.nickname)}</b><span>${person.score || 0} puan</span></span></button>`).join("") : `<p>Katılımcı verisi yok.</p>`}</article><article class="analysis-details glass">${student ? renderStudentDetails(event, student) : `<p>Bir öğrenci seç.</p>`}</article></div>`;
 }
 
 function renderStudentDetails(event, student) {
@@ -696,7 +756,7 @@ function renderStudentDetails(event, student) {
   const fiveEasy = questionAnalysis.slice(-5).map((x) => x.index);
   const hardCorrect = fiveHard.filter((index) => student.results?.[index]?.correct).length;
   const easyCorrect = fiveEasy.filter((index) => student.results?.[index]?.correct).length;
-  return `<h2>${esc(student.fullName)}</h2><p>${esc(student.nickname)} için bireysel performans özeti.</p><div class="metric-row"><div class="metric"><strong>${correct}/${event.meta.questionCount}</strong><span>Doğru yanıt</span></div><div class="metric"><strong>${average}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${student.score || 0}</strong><span>Toplam puan</span></div></div><p><b>Zorlayıcı 5 soruda:</b> ${hardCorrect}/${fiveHard.length || 0} doğru · <b>En kolay 5 soruda:</b> ${easyCorrect}/${fiveEasy.length || 0} doğru</p><div class="question-result-list">${Array.from({ length: event.meta.questionCount }, (_, index) => { const result = student.results?.[index]; return `<div class="question-result ${result?.correct ? "correct" : "wrong"}"><span>${index + 1}. soru</span><span>${result ? result.correct ? "Doğru" : "Yanlış" : "Boş"}</span><span>${Number.isFinite(result?.elapsed) ? `${(result.elapsed / 1000).toFixed(1)} sn` : "—"}</span></div>`; }).join("")}</div>`;
+  return `<h2>${esc(student.fullName || student.nickname)}</h2><p>Bireysel performans özeti.</p><div class="metric-row"><div class="metric"><strong>${correct}/${event.meta.questionCount}</strong><span>Doğru yanıt</span></div><div class="metric"><strong>${average}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${student.score || 0}</strong><span>Toplam puan</span></div></div><p><b>Zorlayıcı 5 soruda:</b> ${hardCorrect}/${fiveHard.length || 0} doğru · <b>En kolay 5 soruda:</b> ${easyCorrect}/${fiveEasy.length || 0} doğru</p><div class="question-result-list">${Array.from({ length: event.meta.questionCount }, (_, index) => { const result = student.results?.[index]; return `<div class="question-result ${result?.correct ? "correct" : "wrong"}"><span>${index + 1}. soru</span><span>${result ? result.correct ? "Doğru" : "Yanlış" : "Boş"}</span><span>${Number.isFinite(result?.elapsed) ? `${(result.elapsed / 1000).toFixed(1)} sn` : "—"}</span></div>`; }).join("")}</div>`;
 }
 
 function renderQuestionAnalysis(event) {
@@ -705,7 +765,7 @@ function renderQuestionAnalysis(event) {
     const answered = (result.correct || 0) + (result.wrong || 0);
     const fastest = result.fastest;
     const slowest = result.slowest;
-    return `<article class="panel glass" style="margin-bottom:12px"><h2>${index + 1}. soru</h2><p>${esc(event.public?.questions?.[index]?.text || "Soru metni bulunamadı.")}</p><div class="metric-row"><div class="metric"><strong>${result.correct || 0}</strong><span>Doğru / ${answered} cevap</span></div><div class="metric"><strong>${averageQuestionSeconds(event, index)}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${result.unanswered || 0}</strong><span>Boş bırakıldı</span></div></div><p>⚡ İlk çözen: <b>${fastest ? `${esc(fastest.nickname)} (${(fastest.elapsed / 1000).toFixed(1)} sn)` : "—"}</b><br>🕊️ Son çözen: <b>${slowest ? `${esc(slowest.nickname)} (${(slowest.elapsed / 1000).toFixed(1)} sn)` : "—"}</b></p></article>`;
+    return `<article class="panel glass" style="margin-bottom:12px"><h2>${index + 1}. soru</h2><p>${esc(event.public?.questions?.[index]?.text || "Soru metni bulunamadı.")}</p><div class="metric-row"><div class="metric"><strong>${result.correct || 0}</strong><span>Doğru / ${answered} cevap</span></div><div class="metric"><strong>${averageQuestionSeconds(event, index)}s</strong><span>Ortalama çözüm</span></div><div class="metric"><strong>${result.unanswered || 0}</strong><span>Boş bırakıldı</span></div></div><p>⚡ İlk çözen: <b>${fastest ? `${esc(fastest.fullName || fastest.nickname)} (${(fastest.elapsed / 1000).toFixed(1)} sn)` : "—"}</b><br>🕊️ Son çözen: <b>${slowest ? `${esc(slowest.fullName || slowest.nickname)} (${(slowest.elapsed / 1000).toFixed(1)} sn)` : "—"}</b></p></article>`;
   }).join("");
   return `<section>${rows}</section>`;
 }
@@ -714,6 +774,21 @@ function averageQuestionSeconds(event, index) {
   const seconds = Object.values(event.participants || {}).map((person) => person.results?.[index]?.elapsed).filter(Number.isFinite);
   if (!seconds.length) return "—";
   return (seconds.reduce((sum, duration) => sum + duration, 0) / seconds.length / 1000).toFixed(1);
+}
+
+async function kickParticipant(eventId, uid) {
+  const participant = state.adminEvents[eventId]?.participants?.[uid];
+  if (!participant) return toast("Bu katılımcı artık lobide değil.", "error");
+  const approved = window.confirm(`${participant.fullName} adlı katılımcıyı lobiden çıkarmak istediğine emin misin?`);
+  if (!approved) return;
+  try {
+    await update(ref(db), {
+      [`events/${eventId}/kicked/${uid}`]: { kickedAt: serverTimestamp(), kickedBy: state.admin.uid },
+      [`events/${eventId}/participants/${uid}`]: null,
+      [`events/${eventId}/leaderboard/${uid}`]: null
+    });
+    toast(`${participant.fullName || participant.nickname} lobiden çıkarıldı.`, "success");
+  } catch (error) { toast(firebaseError(error), "error"); }
 }
 
 async function signOutAdmin() {
@@ -731,7 +806,7 @@ document.addEventListener("click", async (event) => {
   if (!target) return;
   const { action } = target.dataset;
   if (action === "home" || action === "back-landing") { event.preventDefault(); clearListeners(); state.currentPage = "landing"; render(); }
-  if (action === "admin-home") { event.preventDefault(); state.adminTab = "history"; render(); }
+  if (action === "admin-home") { event.preventDefault(); state.adminTab = "lobby"; render(); }
   if (action === "show-join") joinModal();
   if (action === "show-qr") qrModal();
   if (action === "show-admin-login") adminLoginModal();
@@ -750,6 +825,7 @@ document.addEventListener("click", async (event) => {
   if (action === "open-analysis") { state.selectedAnalysisId = target.dataset.eventId; state.adminTab = "analysis"; render(); }
   if (action === "analysis-view") { state.analysisView = target.dataset.view; render(); }
   if (action === "select-participant") { state.selectedParticipantId = target.dataset.uid; render(); }
+  if (action === "kick-participant") kickParticipant(target.dataset.eventId, target.dataset.uid);
   if (action === "sign-out") signOutAdmin();
 });
 
@@ -762,5 +838,8 @@ document.addEventListener("change", (event) => {
   if (event.target.id === "analysis-event") { state.selectedAnalysisId = event.target.value; state.selectedParticipantId = null; render(); }
 });
 
+onValue(ref(db, ".info/serverTimeOffset"), (snapshot) => {
+  state.serverTimeOffset = Number(snapshot.val() || 0);
+});
 onAuthStateChanged(auth, (user) => { state.firebaseUser = user; });
 renderLanding();

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 80" role="img" aria-label="Kuzey Kıbrıs Türk Cumhuriyeti bayrağı">
+  <rect width="120" height="80" rx="4" fill="#fff"/>
+  <rect y="5" width="120" height="8" fill="#e30a17"/>
+  <rect y="67" width="120" height="8" fill="#e30a17"/>
+  <circle cx="47" cy="40" r="20" fill="#e30a17"/>
+  <circle cx="54" cy="36" r="17" fill="#fff"/>
+  <path d="m76 29 3.6 8.1 8.8.8-6.6 5.8 1.9 8.6-7.7-4.5-7.7 4.5 1.9-8.6-6.6-5.8 8.8-.8z" fill="#e30a17"/>
+</svg>

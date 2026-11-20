@@ -1,0 +1,2 @@
+Kendi seçtiğin Atatürk görselini bu klasöre "ataturk.jpeg" adıyla ekle.
+Site görseli otomatik olarak üst sol şeritte gösterecektir.

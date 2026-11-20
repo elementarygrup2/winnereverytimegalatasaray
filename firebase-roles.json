@@ -1,0 +1,19 @@
+{
+  "roles": {
+    "bjC9y4VqvjePjTUFfl9l6uIqbjt2": {
+      "admin": true,
+      "canAuthor": false,
+      "displayName": "İbrahim"
+    },
+    "tNpj4LTPEAfE0Z0JMIOQ74hS46k1": {
+      "admin": true,
+      "canAuthor": false,
+      "displayName": "Berat"
+    },
+    "XSujHCVP3nWk9BZlI3SxrTupYDZ2": {
+      "admin": true,
+      "canAuthor": true,
+      "displayName": "Pembe Hoca"
+    }
+  }
+}

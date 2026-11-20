@@ -67,12 +67,17 @@ Firebase Console → Realtime Database → Rules bölümündeki kuralları aşa�
         "leaderboard": { ".read": "auth != null" },
         "roundResults": { ".read": "auth != null" },
         "celebration": { ".read": "auth != null" },
+        "kicked": {
+          "$uid": {
+            ".read": "auth != null && (auth.uid === $uid || root.child('roles').child(auth.uid).child('admin').val() === true)"
+          }
+        },
         "private": { ".read": "auth != null && root.child('roles').child(auth.uid).child('admin').val() === true" },
         "participants": {
           "$uid": {
             ".read": "auth != null && (auth.uid === $uid || root.child('roles').child(auth.uid).child('admin').val() === true)",
-            ".write": "auth != null && (root.child('roles').child(auth.uid).child('admin').val() === true || (auth.uid === $uid && !data.exists() && newData.child('fullName').isString() && newData.child('nickname').isString() && newData.child('ready').val() === false && newData.child('score').val() === 0))",
-            ".validate": "newData.hasChildren(['fullName','nickname']) || root.child('roles').child(auth.uid).child('admin').val() === true",
+            ".write": "auth != null && (root.child('roles').child(auth.uid).child('admin').val() === true || (auth.uid === $uid && !data.exists() && newData.child('fullName').isString() && newData.child('ready').val() === false && newData.child('score').val() === 0))",
+            ".validate": "newData.hasChildren(['fullName']) || root.child('roles').child(auth.uid).child('admin').val() === true",
             "ready": {
               ".write": "auth != null && auth.uid === $uid && data.exists()"
             },
@@ -97,7 +102,7 @@ Firebase Console → Realtime Database → Rules bölümündeki kuralları aşa�
 
 ## Kısa akış
 
-1. Pembe Hoca, **Yeni etkinlik oluştur** ekranından soru sayısını, 4/5 seçeneği ve soru süresini belirler; her sorunun doğru cevabını işaretler.
-2. Etkinlik katılıma açılır. Öğrenciler gerçek ad-soyadları ve takma adlarıyla girip **Hazırım** der.
-3. En az 5 hazır öğrenci olduğunda yönetici etkinliği başlatır. Her turun ardından ilk 10 ekranı gösterilir.
+1. Pembe Hoca, **Yeni etkinlik oluştur** ekranından çift sayı olacak şekilde soru sayısını ve soru süresini, ayrıca 4/5 seçeneğini belirler; her sorunun doğru cevabını işaretler.
+2. Etkinlik katılıma açılır. Öğrenciler gerçek ad-soyadlarıyla girip **Hazırım** der.
+3. Yönetici etkinliği istediği anda başlatır. Her turun ardından ilk 10 ekranı gösterilir.
 4. Bitince ödül ekranı, öğrenci analizi ve soru analizi oluşur.
